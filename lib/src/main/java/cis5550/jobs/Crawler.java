@@ -116,7 +116,7 @@ public class Crawler {
                 System.out.println("Crawling " + url);
 
                 // establish connection + headers
-                HttpURLConnection connHEAD = (HttpURLConnection) new java.net.URL(url).openConnection();
+                HttpURLConnection connHEAD = (HttpURLConnection) new URL(url).openConnection();
                 connHEAD.setRequestProperty("User-Agent", "cis5550-crawler");
                 connHEAD.setConnectTimeout(1000);
                 connHEAD.setReadTimeout(1000);
@@ -172,7 +172,7 @@ public class Crawler {
 
 
                 // GET request
-                HttpURLConnection conn = (HttpURLConnection) new java.net.URL(url).openConnection();
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
                 conn.setRequestProperty("User-Agent", "cis5550-crawler");
                 conn.setConnectTimeout(1000);
                 conn.setReadTimeout(1000);
