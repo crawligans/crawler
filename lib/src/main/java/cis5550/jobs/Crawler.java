@@ -282,12 +282,11 @@ public class Crawler {
                         linkURI.getPath(), linkURI.getQuery(), null);
             }
 
-            String path = linkURI.getPath().isEmpty() ? "/" : linkURI.getPath();
+            String path = linkURI.getPath().isBlank() ? "/" : linkURI.getPath();
 
             //remove fragment
             linkURI = new URI(linkURI.getScheme(), linkURI.getUserInfo(), linkURI.getHost(), linkURI.getPort(),
                     path, linkURI.getQuery(), null);
-
 
             return linkURI.toString();
 
@@ -359,8 +358,9 @@ public class Crawler {
         return true;
     }
 
-
-    public static void main(String[] args) throws URISyntaxException {
-        System.out.println(normaliseLink("https://www.google.com", "https://www.google.com"));
+    public static void main(String[] args) throws IOException {
+        URL url = new URL("http://localhost:8001/ping?id=gwefa&port=9001");
+        url.getContent();
     }
+
 }
