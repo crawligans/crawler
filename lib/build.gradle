@@ -30,7 +30,6 @@ def urlFile = { url, name ->
 }
 
 dependencies {
-    implementation urlFile('https://github.com/crawligans/webserver/releases/latest/download/webserver.jar', 'webserver')
     implementation urlFile('https://github.com/crawligans/kvs/releases/latest/download/KVSMaster.jar', 'kvs')
     implementation urlFile('https://github.com/crawligans/flame/releases/latest/download/FlameFlameSubmit.jar', 'flame')
 }
