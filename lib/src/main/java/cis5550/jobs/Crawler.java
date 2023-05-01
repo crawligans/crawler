@@ -6,10 +6,7 @@ import cis5550.kvs.KVSClient;
 import cis5550.kvs.Row;
 import cis5550.tools.Hasher;
 
-import java.io.BufferedReader;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.*;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -256,7 +253,7 @@ public class Crawler {
         Pattern pattern = Pattern.compile("(?i)<a\\s+(?:[^>]*?\\s+)?href=([\"'])(.*?)\\1");
         Matcher matcher = pattern.matcher(html);
         while (matcher.find()) {
-            String link = matcher.group(2);
+            String link = matcher.group(2).trim();
             // normalise link
             link = normaliseLink(base, link);
             if (link != null && !link.isBlank() && !link.startsWith("#")) {
@@ -287,24 +284,23 @@ public class Crawler {
             // If resulting URL does not have a host part, prepend the host part from the base URL
             if (linkURI.getHost() == null) {
                 linkURI = new URI(baseURI.getScheme(), baseURI.getUserInfo(), baseURI.getHost(), baseURI.getPort(),
-                        linkURI.getPath(), linkURI.getQuery(), null);
+                        linkURI.getPath(), null, null);
             }
 
             // If resulting URL has a host part but no port number, add the default port number for the protocol
             if (linkURI.getPort() == -1 && linkURI.getScheme().equals("http")) {
                 linkURI = new URI(linkURI.getScheme(), linkURI.getUserInfo(), linkURI.getHost(), 80,
-                        linkURI.getPath(), linkURI.getQuery(), null);
+                        linkURI.getPath(), null, null);
             } else if (linkURI.getPort() == -1 && linkURI.getScheme().equals("https")) {
                 linkURI = new URI(linkURI.getScheme(), linkURI.getUserInfo(), linkURI.getHost(), 443,
-                        linkURI.getPath(), linkURI.getQuery(), null);
+                        linkURI.getPath(), null, null);
             }
 
             String path = linkURI.getPath().isBlank() ? "/" : linkURI.getPath();
-            path = path.replaceAll("&#..;", "/");
-
+            path = path.replaceAll("(&#..)", "/");
             //remove fragment
             linkURI = new URI(linkURI.getScheme(), linkURI.getUserInfo(), linkURI.getHost(), linkURI.getPort(),
-                    path, linkURI.getQuery(), null);
+                    path, null, null);
 
             return linkURI.toString();
 
@@ -329,7 +325,19 @@ public class Crawler {
         }
 
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(uri.toURL().openStream()));
+        InputStream stream = null;
+        try {
+            stream = uri.toURL().openStream();
+        } catch (IOException e) {
+            // no robots.txt
+            Row row = new Row(Hasher.hash(uri.getHost()));
+            row.put("allowed", allowedUrls.toString());
+            row.put("disallowed", disallowedUrls.toString());
+            kvs.putRow("hosts", row);
+            System.out.println("No robots.txt for " + uri.getHost());
+            return;
+        }
+        BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
         String line;
         boolean userAgentMatched = false;
         while ((line = reader.readLine()) != null) {
