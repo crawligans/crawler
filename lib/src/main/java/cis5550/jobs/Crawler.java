@@ -6,8 +6,13 @@ import cis5550.kvs.KVSClient;
 import cis5550.kvs.Row;
 import cis5550.tools.Hasher;
 
-import java.io.*;
-import java.net.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -15,18 +20,27 @@ import java.util.regex.Pattern;
 public class Crawler {
 
     public static void run(FlameContext ctx, String[] args) throws Exception {
-
+        FlameRDD urlQueue = null;
         // normalise seed urls
         ArrayList<String> normalised = new ArrayList<>();
         String seed = args[0];
-        String normalisedUrl = normaliseLink(seed, seed);
-        if (normalisedUrl != null)
-            normalised.add(normalisedUrl);
+
+        if (seed.equals("RECOVER")) {
+            //add all in "urlQueue" table to normalised
+            Iterator<Row> itr = ctx.getKVS().scan("urlQueue");
+            while (itr.hasNext()) {
+                normalised.add(itr.next().get("value"));
+            }
+        } else {
+            String normalisedUrl = normaliseLink(seed, seed);
+            if (normalisedUrl != null)
+                normalised.add(normalisedUrl);
+        }
 
         // blacklist
         String blacklistName = null;
         ArrayList<Pattern> blacklist = new ArrayList<>();
-        if(args.length > 1) {
+        if (args.length > 1) {
             blacklistName = args[1];
 
             Iterator<Row> itr = ctx.getKVS().scan(blacklistName);
@@ -51,21 +65,7 @@ public class Crawler {
         ctx.getKVS().persist("hosts");
         ctx.getKVS().persist("seen");
 
-        FlameRDD urlQueue;
         urlQueue = ctx.parallelize(normalised);
-
-        //add shutdown hook
-        FlameRDD finalUrlQueue = urlQueue;
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                System.out.println("Shutting down");
-                ctx.getKVS().persist("urlQueue");
-                finalUrlQueue.saveAsTable("urlQueue");
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }));
-
         while (urlQueue.count() > 0) {
             urlQueue = urlQueue.flatMap(url -> {
                 try {
@@ -97,12 +97,15 @@ public class Crawler {
                     if (kvs.existsRow("hosts", hostHash)) {
                         Row hostRow = kvs.getRow("hosts", hostHash);
                         String lastAccessString = hostRow.get("lastAccessed");
+                        int delay = Integer.parseInt(hostRow.get("delay"));
                         if (lastAccessString == null) {
                             hostRow.put("lastAccessed", String.valueOf(System.currentTimeMillis()));
                         } else {
                             long lastAccess = Long.parseLong(lastAccessString);
-                            if (System.currentTimeMillis() - lastAccess < 500) {
+                            if (System.currentTimeMillis() - lastAccess < delay * 1000L) {
                                 // we accessed recently, so don't crawl
+                                System.out.println("Crawl Delay Prevented " + url);
+                                kvs.put("urlQueue", Hasher.hash(url), "url", url.getBytes());
                                 return List.of(url);
                             }
                         }
@@ -149,6 +152,8 @@ public class Crawler {
                         String redirectURL = connHEAD.getHeaderField("Location");
                         String redirectNormalised = normaliseLink(url, redirectURL);
                         assert redirectNormalised != null;
+                        kvs.put("urlQueue", Hasher.hash(redirectNormalised),
+                                "url", redirectNormalised.getBytes());
                         return List.of(redirectNormalised);
                     }
 
@@ -245,7 +250,12 @@ public class Crawler {
                 }
             });
 
+            System.out.println(ctx.getKVS().count("crawl") + " urls crawled so far");
+
+            // rate limit
+            Thread.sleep(500);
         }
+
     }
 
     public static List<String> extractLinks(String html, String base) {
@@ -310,53 +320,60 @@ public class Crawler {
         }
     }
 
-    private static void parseRobots(String url, KVSClient kvs) throws IOException {
+    private static void parseRobots(String urlStr, KVSClient kvs) throws IOException {
         // read robots txt
         String userAgent = "cis5550-crawler";
 
         List<String> allowedUrls = new ArrayList<>();
         List<String> disallowedUrls = new ArrayList<>();
-        URI uri;
-        try {
-            uri = new URI(url).resolve("/robots.txt");
-        } catch (URISyntaxException e) {
-            e.printStackTrace();
-            return;
-        }
 
+        // prepare request
+        URL url = new URL(new URL(urlStr), "/robots.txt");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestProperty("User-Agent", "cis5550-crawler");
+        conn.setConnectTimeout(1000);
+        conn.setReadTimeout(1000);
+        conn.setRequestMethod("GET");
+        conn.setInstanceFollowRedirects(false);
+        conn.connect();
 
-        InputStream stream = null;
-        try {
-            stream = uri.toURL().openStream();
-        } catch (IOException e) {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+        conn.disconnect();
+        if (conn.getResponseCode() != 200) {
             // no robots.txt
-            Row row = new Row(Hasher.hash(uri.getHost()));
+            Row row = new Row(Hasher.hash(url.getHost()));
             row.put("allowed", allowedUrls.toString());
             row.put("disallowed", disallowedUrls.toString());
+            row.put("delay", "500");
             kvs.putRow("hosts", row);
-            System.out.println("No robots.txt for " + uri.getHost());
+            System.out.println("No robots.txt for " + url.getHost());
             return;
         }
-        BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
+
+
         String line;
+        String delay = "5"; //default delay
         boolean userAgentMatched = false;
         while ((line = reader.readLine()) != null) {
-            if (line.startsWith("User-agent:")) {
+            if (line.toLowerCase().startsWith("user-agent:")) {
                 String agent = line.substring(11).trim();
                 userAgentMatched = userAgent.equals(agent) || agent.equals("*");
-            } else if (line.startsWith("Allow:") && userAgentMatched) {
+            } else if (line.toLowerCase().startsWith("allow:") && userAgentMatched) {
                 String urlx = line.substring(6).trim();
-                allowedUrls.add(uri.resolve(urlx).toString());
-            } else if (line.startsWith("Disallow:") && userAgentMatched) {
+                allowedUrls.add(new URL(url, urlx).toString());
+            } else if (line.toLowerCase().startsWith("disallow:") && userAgentMatched) {
                 String urlx = line.substring(9).trim();
-                disallowedUrls.add(uri.resolve(urlx).toString());
+                disallowedUrls.add(new URL(url, urlx).toString());
+            } else if (line.toLowerCase().startsWith("crawl-delay:") && userAgentMatched) {
+                delay = line.substring(12).trim();
             }
         }
 
         // add to "hosts" table
-        Row row = new Row(Hasher.hash(uri.getHost()));
+        Row row = new Row(Hasher.hash(url.getHost()));
         row.put("allowed", allowedUrls.toString());
         row.put("disallowed", disallowedUrls.toString());
+        row.put("delay", delay);
         kvs.putRow("hosts", row);
     }
 
@@ -365,9 +382,9 @@ public class Crawler {
         String allowedString = kvs.getRow("hosts", host).get("allowed");
         String disallowedString = kvs.getRow("hosts", host).get("disallowed");
         String[] allowedUrls = allowedString.substring(1, allowedString.length() - 1)
-                                                  .split(", ");
+                .split(", ");
         String[] disallowedUrls = disallowedString.substring(1, disallowedString.length() - 1)
-                                                  .split(", ");
+                .split(", ");
 
 
         for (String disallowedUrl : disallowedUrls) {
