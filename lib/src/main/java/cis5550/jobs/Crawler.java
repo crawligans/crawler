@@ -338,7 +338,6 @@ public class Crawler {
         conn.connect();
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-        conn.disconnect();
         if (conn.getResponseCode() != 200) {
             // no robots.txt
             Row row = new Row(Hasher.hash(url.getHost()));
@@ -368,6 +367,7 @@ public class Crawler {
                 delay = line.substring(12).trim();
             }
         }
+        conn.disconnect();
 
         // add to "hosts" table
         Row row = new Row(Hasher.hash(url.getHost()));
