@@ -60,8 +60,8 @@ public class Crawler {
         Iterator<Row> blacklistPatterns = ctx.getKVS().scan(args[1]);
         List<Pattern> blacklist = StreamSupport.stream(
                 ((Iterable<Row>) () -> blacklistPatterns).spliterator(), true)
-            .map(row -> row.get("pattern")).filter(Objects::nonNull)
-            .map(pattern -> pattern.replace("*", ".*") + "/.*").map(Pattern::compile).toList();
+            .map(row -> row.get("pattern")).filter(Objects::nonNull).distinct()
+            .map(pattern -> pattern.replaceAll("\\*", ".*") + "/.*").map(Pattern::compile).toList();
 
         ctx.getKVS().persist("crawl");
         ctx.getKVS().persist("hosts");
@@ -70,7 +70,7 @@ public class Crawler {
         urlQueue = ctx.parallelize(normalised);
         while (urlQueue.count() > 0) {
             try {
-                urlQueue = urlQueue.flatMap(url -> {
+                FlameRDD newUrlQueue = urlQueue.flatMap(url -> {
                     try {
                         // check we haven't already crawled this url
                         KVSClient kvs = ctx.getKVS();
@@ -271,6 +271,8 @@ public class Crawler {
                         return Collections::emptyIterator;
                     }
                 });
+                urlQueue.drop();
+                urlQueue = newUrlQueue;
             } catch (Exception e) {
                 logger.error(e.getMessage(), e);
                 ctx.getKVS().persist("urlQueue");
@@ -279,7 +281,6 @@ public class Crawler {
                     return Collections::emptyIterator;
                 });
             }
-            logger.info(ctx.getKVS().count("crawl") + " urls crawled so far");
 
             // rate limit
             Thread.sleep(500);
