@@ -1,0 +1,15 @@
+<component name="ArtifactManager">
+  <artifact name="crawler:jar">
+    <output-path>$PROJECT_DIR$/../../build</output-path>
+    <root id="root">
+      <element id="archive" name="crawler.jar">
+        <element id="directory" name="META-INF">
+          <element id="file-copy" path="$PROJECT_DIR$/META-INF/MANIFEST.MF" />
+        </element>
+        <element id="module-output" name="crawler.lib.main" />
+      </element>
+      <element id="file-copy" path="$PROJECT_DIR$/lib/build/download/kvs.jar" />
+      <element id="file-copy" path="$PROJECT_DIR$/lib/build/download/flame.jar" />
+    </root>
+  </artifact>
+</component>

@@ -57,11 +57,17 @@ public class Crawler {
         }).filter(Objects::nonNull).map(URL::toExternalForm);
 
         // blacklist
-        Iterator<Row> blacklistPatterns = ctx.getKVS().scan(args[1]);
-        List<Pattern> blacklist = StreamSupport.stream(
-                ((Iterable<Row>) () -> blacklistPatterns).spliterator(), true)
-            .map(row -> row.get("pattern")).filter(Objects::nonNull).distinct()
-            .map(pattern -> pattern.replaceAll("\\*", ".*") + "/.*").map(Pattern::compile).toList();
+        final List<Pattern> blacklist;
+        if (args.length > 1) {
+            Iterator<Row> blacklistPatterns = ctx.getKVS().scan(args[1]);
+            blacklist = StreamSupport.stream(
+                    ((Iterable<Row>) () -> blacklistPatterns).spliterator(), true)
+                .map(row -> row.get("pattern")).filter(Objects::nonNull).distinct()
+                .map(pattern -> pattern.replaceAll("\\*", ".*") + "/.*").map(Pattern::compile)
+                .toList();
+        } else {
+            blacklist = new ArrayList<>();
+        }
 
         ctx.getKVS().persist("crawl");
         ctx.getKVS().persist("hosts");
@@ -99,7 +105,7 @@ public class Crawler {
 
                         // check if is in blacklist
                         if (blacklist.stream().map(pattern -> pattern.matcher(url))
-                            .anyMatch(Matcher::matches)) {
+                            .map(Matcher.class::cast).anyMatch(Matcher::matches)) {
                             return Collections::emptyIterator;
                         }
 
@@ -287,10 +293,16 @@ public class Crawler {
         }
     }
 
-    public static List<String> extractLinks(String html, String base) throws MalformedURLException {
-        Pattern pattern = Pattern.compile("(?i)<(a|img)\\s+(?:[^>]*?\\s+)?href=([\"'])(.*?)\\1");
+    public static List<String> extractLinks(String html, String base) {
+        Pattern pattern = Pattern.compile("(?i)<a\\s+(?:[^>]*?\\s+)?href=([\"'])(.*?)\\1");
         return pattern.matcher(html).results().map(m -> m.group(2)).filter(Objects::nonNull)
-            .distinct().toList();
+            .distinct().map(l -> {
+                try {
+                    return new URL(new URL(base), l);
+                } catch (MalformedURLException e) {
+                    return null;
+                }
+            }).filter(Objects::nonNull).map(URL::toExternalForm).toList();
     }
 
     public static URL normalizeUrl(URL url) throws MalformedURLException {
