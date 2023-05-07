@@ -1,5 +1,5 @@
 <component name="ArtifactManager">
-  <artifact name="crawler:jar">
+  <artifact build-on-make="true" name="crawler:jar">
     <output-path>$PROJECT_DIR$/../../build</output-path>
     <root id="root">
       <element id="archive" name="crawler.jar">
